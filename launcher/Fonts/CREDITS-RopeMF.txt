@@ -1,0 +1,10 @@
+Rope MF (RopeMF.ttf)
+
+"1.01 Rope MF (c)1993 By Richard William Mueller" (the notice inside the font file).
+
+Released as freeware in 1993. Font catalogues such as FontSpace list it as
+"100% Free" for personal and commercial use. It's included here unmodified
+(only the file name was shortened from rope.ttf) and is not sold; thanks to
+Richard William Mueller for it.
+
+The launcher embeds it for its rope-lettered section headings.

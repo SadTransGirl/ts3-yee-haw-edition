@@ -1,0 +1,76 @@
+<Window x:Class="YeeHawLauncher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Toy Story 3 Yee Haw Edition" Icon="Assets/YeeHaw.ico"
+        Width="1000" Height="760" MinWidth="800" MinHeight="580"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource BackgroundBrush}"
+        FontFamily="{StaticResource BodyFont}" Foreground="{StaticResource TextBrush}">
+    <Grid Background="{StaticResource BackgroundBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="104" />  <!-- sidebar -->
+            <ColumnDefinition Width="*" />    <!-- banner, the open page, footer -->
+        </Grid.ColumnDefinitions>
+
+        <!-- Sidebar, hat red with the brim's white stitching down its edge: a sheriff-star badge,
+             one button per tab (filled in from SettingsCatalog.Tabs), the version at the bottom. -->
+        <Grid Grid.Column="0" Background="{StaticResource RedBrush}">
+            <Line X1="0" Y1="0" X2="0" Y2="1" Stretch="Fill" HorizontalAlignment="Right" Margin="0,10,6,10"
+                  Stroke="#FFF6E6" StrokeThickness="2" StrokeDashArray="3 3" Opacity="0.8" />
+            <DockPanel Margin="0,0,8,0">
+                <Border DockPanel.Dock="Top" Width="52" Height="52" CornerRadius="26" Margin="0,20,0,18"
+                        Background="{StaticResource YellowBrush}" HorizontalAlignment="Center">
+                    <TextBlock Text="&#xE735;" FontFamily="{StaticResource IconFont}" FontSize="26" Foreground="{StaticResource RedDarkBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <TextBlock x:Name="VersionText" DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,0,0,16"
+                           FontSize="11" Foreground="#F6DCD6" />
+                <StackPanel x:Name="NavBar" />
+            </DockPanel>
+        </Grid>
+
+        <Grid Grid.Column="1" Margin="24,20,24,20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />   <!-- banner -->
+                <RowDefinition Height="*" />      <!-- the open tab -->
+                <RowDefinition Height="Auto" />   <!-- status and buttons -->
+            </Grid.RowDefinitions>
+
+            <!-- Banner: cowhide, with the title on a white label in front of it. -->
+            <Grid Grid.Row="0" Margin="0,0,0,18" Effect="{StaticResource CardShadow}">
+                <Border CornerRadius="16" Background="{StaticResource CardBrush}" />
+                <Border CornerRadius="16" Background="{StaticResource CowhideBrush}" />
+                <Border HorizontalAlignment="Left" Margin="16" CornerRadius="12" Background="{StaticResource CardBrush}"
+                        Padding="22,12,26,14" Effect="{StaticResource CardShadow}">
+                    <StackPanel>
+                        <TextBlock Text="TOY STORY 3" FontFamily="{StaticResource TitleFont}" FontSize="16"
+                                   Foreground="{StaticResource MutedBrush}" />
+                        <TextBlock Text="Yee Haw Edition" FontFamily="{StaticResource TitleFont}" FontSize="42"
+                                   Foreground="{StaticResource RedBrush}" Margin="0,2,0,0" />
+                        <Border Width="64" Height="5" CornerRadius="2.5" Background="{StaticResource YellowBrush}"
+                                HorizontalAlignment="Left" Margin="2,4,0,10" />
+                        <TextBlock Text="Online co-op, sharper graphics and a few surprises" FontSize="14"
+                                   Foreground="{StaticResource MutedBrush}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                <!-- Side and bottom margins leave room for the cards' shadows. -->
+                <StackPanel x:Name="TabContent" Margin="2,0,2,6" />
+            </ScrollViewer>
+
+            <!-- Footer: what happened last, Save, and the big start button. -->
+            <Border Grid.Row="2" Background="{StaticResource CardBrush}" CornerRadius="14" Padding="20,12" Margin="0,16,0,0"
+                    Effect="{StaticResource CardShadow}">
+                <DockPanel>
+                    <Button x:Name="LaunchButton" DockPanel.Dock="Right" Style="{StaticResource PillButton}" FontSize="19"
+                            Content="Saddle up!" Click="OnLaunch" Margin="10,0,0,0" />
+                    <Button x:Name="SaveButton" DockPanel.Dock="Right" Style="{StaticResource QuietButton}"
+                            Content="Save" Click="OnSave" />
+                    <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                               FontSize="14" TextWrapping="Wrap" />
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

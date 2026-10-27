@@ -1,0 +1,20 @@
+<UserControl x:Class="YeeHawLauncher.IconArt"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="512" Height="512">
+    <!--
+        The project's square icon (app icon, avatars): Jessie's sheriff star on hat red with the
+        brim's white stitching. Drawn with the launcher's own resources: no game art. Rendered
+        by the launcher's icon mode (see App.xaml.cs).
+    -->
+    <Grid>
+        <Border CornerRadius="104" Background="{StaticResource RedBrush}" />
+        <Rectangle Margin="24" RadiusX="84" RadiusY="84" Stroke="#FFF6E6" StrokeThickness="8"
+                   StrokeDashArray="1.6 1.4" Opacity="0.9" />
+        <Image Source="{StaticResource SheriffStar}" Margin="58,52,58,64">
+            <Image.Effect>
+                <DropShadowEffect Color="#3B0F0C" BlurRadius="24" ShadowDepth="10" Direction="290" Opacity="0.45" />
+            </Image.Effect>
+        </Image>
+    </Grid>
+</UserControl>

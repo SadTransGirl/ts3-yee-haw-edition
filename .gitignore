@@ -1,0 +1,37 @@
+# Session output: logs, recordings and per-run data (contain Steam names and IDs).
+runs/
+graphics.log
+*.log
+
+# Build output. build.cmd writes build\; build_next\ holds numbered test builds.
+build/
+build_next/
+*.dll
+*.obj
+*.exp
+*.lib
+__pycache__/
+launcher/bin/
+launcher/obj/
+# Fonts we may use locally but not redistribute (licences in their README).
+launcher/Fonts/private/*
+!launcher/Fonts/private/README.txt
+
+# Compiled shader blobs: build_shaders.cmd regenerates them, and the headers in src\
+# that embed them are committed.
+src/shaders/*.dxil
+
+# Friend kits are packaged from a build; their inis hold the players' Steam IDs.
+friend_kit*/
+*.zip
+
+# Hand-made backups from before git (xinput_proxy.before-*.cpp, *.before-*.ini, ...).
+*.before-*
+*.bak
+backup_*/
+save_rescue_*/
+*.bin
+xinput_harness.run14-replay.ini
+
+# Old backups, builds and kits moved out of the way by the 2026-10-27 tidy (nothing deleted).
+_archive/

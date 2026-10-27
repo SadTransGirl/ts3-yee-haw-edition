@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Toy Story 3 Yee Haw Edition - settings launcher.
+    A small WPF app that edits xinput_harness.ini (the mod's settings file) and
+    starts the game through Steam. Build: dotnet build -c Release
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>YeeHawLauncher</AssemblyName>
+    <RootNamespace>YeeHawLauncher</RootNamespace>
+    <Product>Toy Story 3 Yee Haw Edition</Product>
+    <Version>0.1.0</Version>
+    <!-- The sheriff-star icon (from docs\icon.png by tools\make_icon.py): the exe's own icon in
+         Explorer and on shortcuts; MainWindow uses the same file for the title bar and taskbar. -->
+    <ApplicationIcon>Assets\YeeHaw.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded in the exe: Luckiest Guy (Apache 2.0, Fonts\LICENSE-LuckiestGuy.txt) for titles,
+         tabs and buttons; Rope MF (freeware, Fonts\CREDITS-RopeMF.txt) for section headings. -->
+    <Resource Include="Fonts\LuckiestGuy-Regular.ttf" />
+    <Resource Include="Fonts\RopeMF.ttf" />
+    <Resource Include="Assets\YeeHaw.ico" />
+  </ItemGroup>
+
+</Project>

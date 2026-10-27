@@ -1,0 +1,5 @@
+Downloaded 2026-10-25 with the user's permission from
+https://github.com/iryoku/smaa at commit 71c806a838bdd7d517df19192a20f0c61b3ca29d (2013-11-06).
+Files: SMAA.hlsl, LICENSE.txt (MIT), README.md, Textures/AreaTex.h, Textures/SearchTex.h. Unmodified.
+Used by re/shaders_proposed/smaa_passes.hlsl. MIT requires the copyright notice and LICENSE.txt to ship
+with any build that includes SMAA (e.g. the friend kit).

@@ -1,0 +1,24 @@
+LIBRARY xinput1_4
+; Ordinals must match the real System32\xinput1_4.dll: the game imports
+; XInputGetState/SetState/GetCapabilities by ordinal 2/3/4, not by name.
+; Those three are the proxy's handlers and are exported by ordinal ONLY, so
+; name-based hookers (Steam Input) don't patch them. The names belong to
+; plain pass-throughs that Steam Input hooks instead (see xinput_proxy.cpp).
+EXPORTS
+    Game_XInputGetState         @2   NONAME
+    Game_XInputSetState         @3   NONAME
+    Game_XInputGetCapabilities  @4   NONAME
+    XInputEnable                @5
+    XInputGetBatteryInformation @7
+    XInputGetKeystroke          @8
+    XInputGetAudioDeviceIds     @10
+    XInputGetState              @20
+    XInputSetState              @21
+    XInputGetCapabilities       @22
+    XInputGetStateEx            @100 NONAME
+    XInputWaitForGuideButton    @101 NONAME
+    XInputCancelGuideButtonWait @102 NONAME
+    XInputPowerOffController    @103 NONAME
+    XInputGetBaseBusInformation @104 NONAME
+    XInputGetCapabilitiesEx     @108 NONAME
+    XInputOrdinal109            @109 NONAME

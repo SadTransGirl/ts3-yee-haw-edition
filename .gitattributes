@@ -1,0 +1,3 @@
+# Store every file byte for byte: the ini is Latin-1 with CRLF line ends and the
+# generated shader headers must stay identical to what build_shaders.cmd writes.
+* -text
