@@ -247,7 +247,7 @@ enum { NET_HELLO = 1, NET_READY = 2, NET_INPUT = 3, NET_HASH = 4, NET_BYE = 5, N
 static const uint32_t kNetMagic = 0x4E335354;   // "TS3N"
 static const uint16_t kNetVersion = 5;              // 2: start values in READY/INPUT; 3: a debug-menu action per input frame;
                                                     // 4: per-frame RNG tags in INPUT; 5: per-frame flags (load gate)
-static const unsigned kYeeHawBuild = 104;            // bump every build: the settings sheet's "build" line, so two builds never connect
+static const unsigned kYeeHawBuild = 105;            // bump every build: the settings sheet's "build" line, so two builds never connect
 // Inputs and fingerprints are kept in rings of kNetRing frames (index frame % kNetRing); an
 // input packet carries the newest kNetRedundancy frames, so the next packet covers a lost one.
 static const int kNetRing = 256, kNetRedundancy = 8;
@@ -607,6 +607,8 @@ extern int g_hudHiddenN;
 extern BYTE* g_promptEl[6];
 extern bool g_healthPlaced;
 extern bool g_regionFixOk;
+extern bool g_camFovFixOk;      // the camera FOV calls answer "not split" while own screen is on
+extern uint32_t g_voiceTableHash;   // net_determinism.cpp: the voice-line length table's hash (0: not measured)
 extern bool g_previewFixOk;
 
 // test_save.cpp

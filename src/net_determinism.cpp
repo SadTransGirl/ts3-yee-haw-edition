@@ -1,7 +1,9 @@
 // net_determinism.cpp -- determinism across PCs: the per-frame RNG check and catch-up, plus every
-// netplay determinism patch (fixed-point loader, data pump, frame limiter, voice-line waits, script
-// random, Bullet proxy arena, body/key/pair ordering, orphan body parking, wake logs, the
-// session-only simulation fixes, static maths). InstallDeterminism is last.
+// netplay determinism patch (fixed-point loader, data pump, frame limiter, voice-line waits with
+// each line's real length from the dialog bank, script random, Bullet proxy arena, body/key/pair
+// ordering, orphan body parking, wake logs, the session-only simulation fixes, static maths).
+// InstallDeterminism is last; it also installs net_own_screen.cpp's split-test hooks (screen
+// regions and the camera field of view).
 //
 // Why it exists. Online co-op runs in lockstep: both PCs run the whole game, feed it the same
 // inputs on the same frame numbers, and send each other pads, not game state. That works only if
@@ -506,27 +508,190 @@ static PFN_FmodGetDesc g_fmodGetDesc;
 static PFN_FmodGetLength g_fmodGetLength;
 static const int kVoiceFallbackFrames = 180;         // unknown length: 3 s on both PCs
 
-// A playing sound's authored length, in 60 Hz frames rounded up, from its FMOD Studio event
-// description (the sound file's data, the same on both PCs). -1 if it has no event
-// instance or FMOD isn't there.
+// --- voice line lengths (re\VOICE_OVERLAP.md) ---------------------------------
+//
+// Voice lines aren't FMOD Studio events: they're subsounds of one low-level stream bank,
+// data_dx\sound\DIALOG<language>\dialog_str.fsb (opened by FUN_140267e00, played by
+// FUN_140275d70). So the event-length lookup below never found them, and every line counted
+// as the 3 s fallback. A third of the lines are longer: when the 3 s ran out the game took
+// the speaker as finished (the Say component's update clears its line handle) and started the
+// next line on top of the one still playing, most often at level starts.
+// The fix reads every line's real length from the bank's FSB5 header (just the header, about
+// 220 KB; no audio) into a table, once. The table is always the ENGLISH bank's: all 14
+// languages hold the same 4,311 lines in the same order (their names only add a language
+// prefix, "DE_LG001" for "LG001"), so a line's index means the same line in every language,
+// and both co-op PCs time every line identically whatever language each one plays in.
+static std::vector<uint16_t> g_voiceFrames;           // per line index: its length in 60 Hz frames, rounded up
+static std::unordered_map<std::string, int> g_voiceByName;   // line name ("LG001") -> index
+uint32_t g_voiceTableHash;                             // FNV-1a of the table, for the co-op settings sheet (0: not measured)
+static void* volatile g_dialogBank;                    // the dialog bank's FMOD Sound*, once the game opens it
+static const int kVoiceMarginFrames = 6;               // a line's wait outlasts the stream's start-up a little
+
+// Reads DIALOGen-US\dialog_str.fsb's FSB5 header into g_voiceFrames / g_voiceByName. Layout
+// (FSB5 version 1): a 0x3c-byte header (magic, version, line count, sample-header bytes,
+// name-table bytes, ...), then one 64-bit header per line (bit 0: extra chunks follow; bits 1-4:
+// sample-rate index; bits 34-63: the length in samples), each optionally followed by chunks
+// (u32: bit 0 more chunks, bits 1-24 size, bits 25-31 type; type 2 overrides the rate), then
+// the name table (one offset per line, then the names). False if anything doesn't fit.
+static bool LoadVoiceTable() {
+    wchar_t path[MAX_PATH];
+    swprintf_s(path, L"%s\\data_dx\\sound\\DIALOGen-US\\dialog_str.fsb", g_exeDir);
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    uint32_t h[7] = {};                                  // magic, version, lines, sample-header bytes, name bytes, data bytes, mode
+    BYTE head[0x3c];
+    DWORD got = 0;
+    bool ok = ReadFile(f, head, sizeof head, &got, NULL) && got == sizeof head;
+    if (ok) memcpy(h, head, sizeof h);
+    ok = ok && !memcmp(head, "FSB5", 4) && h[1] == 1 && h[2] > 0 && h[2] < 100000 && h[3] < (64u << 20) && h[4] < (64u << 20);
+    std::vector<BYTE> sh, names;
+    if (ok) {
+        sh.resize(h[3]);
+        names.resize(h[4]);
+        ok = ReadFile(f, sh.data(), h[3], &got, NULL) && got == h[3] && ReadFile(f, names.data(), h[4], &got, NULL) && got == h[4];
+    }
+    CloseHandle(f);
+    if (!ok) return false;
+    static const uint32_t kRates[16] = { 4000, 8000, 11000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000 };
+    std::vector<uint16_t> frames(h[2]);
+    size_t pos = 0;
+    for (uint32_t i = 0; i < h[2]; i++) {
+        if (pos + 8 > sh.size()) return false;
+        uint64_t v;
+        memcpy(&v, &sh[pos], 8);
+        pos += 8;
+        uint32_t rate = kRates[(v >> 1) & 0xf];
+        uint64_t samples = v >> 34;
+        for (bool more = v & 1; more;) {                 // the optional chunks after this line's header
+            if (pos + 4 > sh.size()) return false;
+            uint32_t c;
+            memcpy(&c, &sh[pos], 4);
+            pos += 4;
+            more = c & 1;
+            uint32_t size = (c >> 1) & 0xffffff, type = c >> 25;
+            if (pos + size > sh.size()) return false;
+            if (type == 2 && size >= 4) memcpy(&rate, &sh[pos], 4);   // the sample rate, when it isn't one of the table's
+            pos += size;
+        }
+        if (!rate) return false;
+        uint64_t fr = (samples * 60 + rate - 1) / rate;
+        frames[i] = (uint16_t)(fr > 60000 ? 60000 : fr);
+    }
+    std::unordered_map<std::string, int> byName;
+    for (uint32_t i = 0; i < h[2]; i++) {                // the name table: offsets, then C strings
+        if (4 * (i + 1) > names.size()) return false;
+        uint32_t off;
+        memcpy(&off, &names[4 * i], 4);
+        if (off >= names.size()) return false;
+        const char* s = (const char*)&names[off];
+        size_t n = strnlen(s, names.size() - off);
+        byName[std::string(s, n)] = (int)i;
+    }
+    uint32_t hash = 0x811C9DC5;
+    for (uint16_t fr : frames) { hash = (hash ^ (fr & 0xff)) * 16777619u; hash = (hash ^ (fr >> 8)) * 16777619u; }
+    g_voiceFrames.swap(frames);
+    g_voiceByName.swap(byName);
+    g_voiceTableHash = hash;
+    return true;
+}
+
+// A line's length by name: as asked for, or without a two-letter language prefix
+// ("DE_LG001"), plus the margin. -1 if the table doesn't know it.
+static int VoiceFramesByName(const char* name) {
+    if (!name || !*name || g_voiceFrames.empty()) return -1;
+    auto it = g_voiceByName.find(name);
+    if (it == g_voiceByName.end() && isupper((BYTE)name[0]) && isupper((BYTE)name[1]) && name[2] == '_')
+        it = g_voiceByName.find(name + 3);
+    return it == g_voiceByName.end() ? -1 : g_voiceFrames[it->second] + kVoiceMarginFrames;
+}
+
+// FUN_140267e00's createStream call (0x140267f90): the game opening a sound bank. When it's
+// the dialog bank, remember its Sound*, so VoiceLengthFrames can tell a voice line from
+// other low-level sounds.
+typedef int (__stdcall* PFN_CreateStream)(void* system, const char* name, unsigned mode, void* exinfo, void** sound);
+static int __stdcall H_CreateStream(void* system, const char* name, unsigned mode, void* exinfo, void** sound) {
+    int r = ((PFN_CreateStream)(ExeBase() + 0x717880))(system, name, mode, exinfo, sound);
+    __try {
+        size_t n = name ? strlen(name) : 0;
+        if (r == 0 && sound && *sound && n >= 14 && !_stricmp(name + n - 14, "dialog_str.fsb")) {
+            g_dialogBank = *sound;
+            Log("voice lines: the game opened its dialog bank (%s)", name);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    }
+    return r;
+}
+
+// A playing sound's length, in 60 Hz frames rounded up: a voice line's from the table (by its
+// index in the dialog bank, plus the margin), anything else from its FMOD Studio event
+// description. Both are file data, the same on both PCs. -1 if neither applies.
 static int VoiceLengthFrames(void* obj) {
-    if (!obj || !g_fmodGetDesc || !g_fmodGetLength) return -1;
+    if (!obj) return -1;
     __try {
         void* inst = *(void**)((BYTE*)obj + 0x10);     // FMOD::Studio::EventInstance (0 for a low-level channel)
+        if (!inst) {
+            // A low-level subsound: +0xc0 points at its bank's Sound*, +0xc8 is its index in it.
+            // Both are set when the line is started, before its audio is fetched.
+            void** bankRef = *(void***)((BYTE*)obj + 0xc0);
+            void* bank = bankRef ? *bankRef : NULL;
+            int idx = *(int*)((BYTE*)obj + 0xc8);
+            if (bank && bank == g_dialogBank && idx >= 0 && idx < (int)g_voiceFrames.size())
+                return g_voiceFrames[idx] + kVoiceMarginFrames;
+            static LONG misses;
+            if (bank && InterlockedIncrement(&misses) <= 10)
+                Log("voice lines: a low-level sound that isn't a known dialog line (bank %p, dialog bank %p, index %d)",
+                    bank, (void*)g_dialogBank, idx);
+            return -1;
+        }
         void* desc = NULL;
         int ms = 0;
-        if (!inst || g_fmodGetDesc(inst, &desc) != 0 || !desc || g_fmodGetLength(desc, &ms) != 0 || ms <= 0) return -1;
+        if (!g_fmodGetDesc || !g_fmodGetLength || g_fmodGetDesc(inst, &desc) != 0 || !desc ||
+            g_fmodGetLength(desc, &ms) != 0 || ms <= 0) return -1;
         return (ms * 60 + 999) / 1000;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return -1;
     }
 }
 
+// The AI speakers' lines (the Say component). FUN_14045b960(say, name, ?, priority) asks for a
+// line by name and stores its sound handle at say+0x150; the per-frame update and the next
+// request then ask whether that handle is still playing (H_SndIsPlaying). Whether a speaker
+// gets a voice slot at all is decided in real time on each PC, so that answer can't come from
+// the sound object: it comes from the requested NAME, which the simulation chose, the same on
+// both PCs. Each request's handle and length are kept here for H_SndIsPlaying to look up.
+struct SayLine { int handle; int frames; };
+static SayLine g_sayLines[64];
+static int g_sayNext;
+typedef uint64_t (*PFN_SayRequest)(BYTE* say, const char* name, void* a3, int priority);
+static PFN_SayRequest g_sayRequestOrig;
+static uint64_t H_SayRequest(BYTE* say, const char* name, void* a3, int priority) {
+    uint64_t r = g_sayRequestOrig(say, name, a3, priority);
+    if (g_clockLockstep && g_audioWaitOn && GetCurrentThreadId() == g_mainThread) {
+        int handle = 0;
+        __try { handle = say ? *(int*)(say + 0x150) : 0; } __except (EXCEPTION_EXECUTE_HANDLER) {}
+        int frames = handle ? VoiceFramesByName(name) : -1;
+        if (frames >= 0) {
+            g_sayLines[g_sayNext] = { handle, frames };
+            g_sayNext = (g_sayNext + 1) % (int)_countof(g_sayLines);
+        } else if (handle) {
+            static LONG misses;                          // to check names against the bank's (the spec's open question)
+            if (InterlockedIncrement(&misses) <= 20)
+                Log("voice lines: speaker line \"%s\" isn't in the dialog bank; it keeps the 3 s window", name ? name : "");
+        }
+    }
+    return r;
+}
+static int SayLineFrames(int handle) {
+    for (const SayLine& s : g_sayLines) if (handle && s.handle == handle) return s.frames;
+    return -1;
+}
+
 // The frame rule: a handle counts as playing for its authored length in frames
 // from the first query; a handle nobody asked about for 5 frames is forgotten.
 // lineAudio: the audio object a conversation block resolves its handle through
 // (FUN_140273070(*(block+8), handle), as FUN_140264780 does); NULL = the global sound list.
-static bool FramePlaying(VoiceWait* tab, int n, int handle, bool learn, void* lineAudio = NULL) {
+// known: a length the caller already has (an AI speaker's line, by name); -1 = none.
+static bool FramePlaying(VoiceWait* tab, int n, int handle, bool learn, void* lineAudio = NULL, int known = -1) {
     if (!handle) return false;
     BYTE* b = ExeBase();
     uint64_t now = g_engineFrames;
@@ -546,7 +711,9 @@ static bool FramePlaying(VoiceWait* tab, int n, int handle, bool learn, void* li
     if (!e) return false;
     e->lastQuery = (uint32_t)now;
     if (e->frames < 0) {
-        if (learn) {                                     // learn the length once the sound object exists
+        if (known >= 0) {                                // the caller knows the length already
+            e->frames = known;
+        } else if (learn) {                              // learn the length once the sound object exists
             void* obj = NULL;
             __try {
                 obj = lineAudio ? ((PFN_SoundObj)(b + 0x273070))(lineAudio, handle)
@@ -557,7 +724,8 @@ static bool FramePlaying(VoiceWait* tab, int n, int handle, bool learn, void* li
         if (e->frames < 0 && (!learn || now - e->start >= 30)) { e->frames = kVoiceFallbackFrames; g_voiceFallbacks++; }
         if (e->frames >= 0 && g_clockLockstep)           // diagnostic: both logs must agree on every length
             Log("voice wait: handle %d counts as playing for %d frames from frame %llu (%s)", handle, e->frames,
-                (unsigned long long)e->start, learn ? (e->frames == kVoiceFallbackFrames ? "fallback" : "authored") : "fixed window");
+                (unsigned long long)e->start, known >= 0 ? "speaker line, by name"
+                : learn ? (e->frames == kVoiceFallbackFrames ? "fallback" : "authored") : "fixed window");
     }
     return e->frames < 0 || now < e->start + (uint64_t)e->frames;
 }
@@ -588,11 +756,14 @@ static VoiceWait g_sndWait[128];
 // handle at +0x150 when the real sound ends, and FUN_14045b960/FUN_14045b600
 // test that handle before their own (redirected) check (decomp session's audit).
 static const DWORD kSndPlayingCalls[] = { 0x123ab2, 0x45b9cb, 0x45b61a, 0x444099, 0x4440bc, 0x4440cf, 0x18b37e, 0x6c4894, 0x45f2a4 };
-// The redirected calls: the fixed window on the game thread in a session, the real FMOD
-// answer otherwise.
+// The redirected calls: on the game thread in a session, an AI speaker's line lasts its real
+// length (looked up by the name it was requested with, H_SayRequest) and anything else the
+// fixed window; the real FMOD answer otherwise.
 static bool H_SndIsPlaying(int* h) {
-    if (g_clockLockstep && g_audioWaitOn && GetCurrentThreadId() == g_mainThread)
-        return FramePlaying(g_sndWait, _countof(g_sndWait), h ? *h : 0, false);
+    if (g_clockLockstep && g_audioWaitOn && GetCurrentThreadId() == g_mainThread) {
+        int handle = h ? *h : 0;
+        return FramePlaying(g_sndWait, _countof(g_sndWait), handle, false, NULL, SayLineFrames(handle));
+    }
     return ((bool (*)(int*))(ExeBase() + 0x475580))(h);
 }
 // Conversation lines (decomp session, the Toy Box menu split). FUN_1401a9c80, "is the
@@ -631,7 +802,24 @@ static bool PatchAudioWait() {
     BYTE jmp[14] = { 0xFF, 0x25, 0, 0, 0, 0 };
     void* target = (void*)H_SfxIsPlaying;
     memcpy(jmp + 6, &target, 8);
-    return WriteCode(0x479390, jmp, sizeof jmp);
+    if (!WriteCode(0x479390, jmp, sizeof jmp)) return false;
+    // Real voice-line lengths (see "voice line lengths" above): the table, the hook that
+    // recognises the dialog bank, and the one that notes each AI speaker line's name. Without
+    // them every line keeps the 3 s fallback, as before; g_voiceTableHash = 0 says so in the
+    // co-op settings sheet, so two PCs that differ here don't connect.
+    // FUN_14045b960: mov [rsp+10h],rbx; mov [rsp+18h],rbp; mov [rsp+20h],rsi; push rdi
+    static const BYTE say[] = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C, 0x24, 0x18, 0x48, 0x89, 0x74, 0x24, 0x20, 0x57 };
+    bool table = LoadVoiceTable();
+    bool bank = table && RedirectCall(0x267f90, 0x717880, (void*)H_CreateStream);
+    g_sayRequestOrig = bank ? (PFN_SayRequest)Mod_Detour(0x45b960, say, sizeof say, (void*)H_SayRequest) : NULL;
+    if (!g_sayRequestOrig) { g_voiceTableHash = 0; g_voiceFrames.clear(); }
+    Log("voice lines: %s", g_sayRequestOrig ? "real lengths from the dialog bank's header" :
+        !table ? "NOT measured (couldn't read DIALOGen-US\\dialog_str.fsb); every line counts 3 s" :
+                 "NOT measured (the sound-bank or speaker code doesn't match this build); every line counts 3 s");
+    if (g_sayRequestOrig)
+        Log("voice lines: %zu lines, longest %u frames (table %08x)", g_voiceFrames.size(),
+            (unsigned)*std::max_element(g_voiceFrames.begin(), g_voiceFrames.end()), g_voiceTableHash);
+    return true;
 }
 
 // Diagnostic (plus the blink-timer fix below): the two script random-number natives (0x14049d4a0
@@ -2005,6 +2193,20 @@ void InstallDeterminism() {
                 for (DWORD c : kHorzCalls) n += RedirectCall(c, 0x5cdf40, (void*)H_SplitIsHorizontal);
                 g_regionFixOk = n == 10;
                 Log("determinism: %d/10 screen-region helper calls use the full screen while own screen is on", n);
+                // The camera field of view (re\SPLITSCREEN_FOV.md). The normal player camera
+                // (its FOV callback FUN_14021fd70) and CTetherWTVC::Update (0x14021a5b0) pick 65
+                // degrees for one view, 52 for a top/bottom split and 87.75 for side by side, from
+                // the same two split tests. Own screen gives each player a full-screen view, so
+                // those four calls answer "not split" too: 65 degrees, as in single player. The
+                // FOV also shapes the cull frustum, which feeds the simulation, so like the calls
+                // above this follows NetOwnScreenActive(), the same on both PCs on every frame.
+                int fov = 0;
+                fov += RedirectCall(0x21fd74, 0x5ceca0, (void*)H_SplitIsVertical);     // player camera: side by side?
+                fov += RedirectCall(0x21fd8a, 0x5cdf40, (void*)H_SplitIsHorizontal);   // player camera: top/bottom?
+                fov += RedirectCall(0x21a6ee, 0x5ceca0, (void*)H_SplitIsVertical);     // tether camera: side by side?
+                fov += RedirectCall(0x21a701, 0x5cdf40, (void*)H_SplitIsHorizontal);   // tether camera: top/bottom?
+                g_camFovFixOk = fov == 4;
+                Log("determinism: %d/4 camera field-of-view calls use the single-player 65 degrees while own screen is on", fov);
                 int draws = 0;
                 if (RipRefersTo(0x3416a, 3, 7, 0xb2ef10))
                     for (DWORD c : { 0x1225caUL, 0x123fc7UL, 0x205b22UL }) draws += RedirectCall(c, 0x1f7d10, (void*)H_PreviewDraw);

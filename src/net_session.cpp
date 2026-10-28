@@ -411,6 +411,7 @@ static const SheetKey kSheetKeys[] = {
     { "drop_in",            L"Drop-in",                     L"launcher: Partner Up", 'b' },
     { "hidden_levels",      L"Restore Wii-only levels",     L"launcher: Extras", 'b' },
     { "script_fixes",       L"2010 script fixes",           L"launcher: Extras", 'b' },
+    { "voice_table",        L"Voice line timing",           L"game files: data_dx\\sound\\DIALOGen-US (verify the game's files in Steam)", 'x' },
     { "~graphics",          L"Graphics improvements",       L"launcher: Dress It Up; the distances count only when it's on", 'b' },
     { "lod_scale",          L"Character detail distance",   L"launcher: Dress It Up", 's' },
     { "world_lod_scale",    L"World detail distance",       L"launcher: Dress It Up", 's' },

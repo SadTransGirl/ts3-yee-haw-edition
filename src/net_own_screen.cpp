@@ -664,7 +664,10 @@ static void H_ReticleShow(void* mgr, char show, int idx, char tint) {
 // While own screen is active, their 10 calls to the split tests (FUN_1405ceca0 vertical,
 // FUN_1405cdf40 horizontal) answer "not split" on both PCs: the full-screen region for both
 // players, matching the projection. Everything else still sees the real split mode.
+// The same two answers also drive the player and tether cameras' field of view (65 degrees
+// for one view instead of a split's 52 or 87.75): see g_camFovFixOk in net_determinism.cpp.
 bool g_regionFixOk;
+bool g_camFovFixOk;
 bool H_SplitIsVertical() { return NetOwnScreenActive() ? false : ((bool (*)())(ExeBase() + 0x5ceca0))(); }
 bool H_SplitIsHorizontal() { return NetOwnScreenActive() ? false : ((bool (*)())(ExeBase() + 0x5cdf40))(); }
 

@@ -92,7 +92,11 @@ public partial class MainWindow : Window
         foreach (var refresh in _refreshers) refresh();
     }
 
-    /// <summary>A row of one-click preset buttons; each writes its values into the controls (not the file).</summary>
+    /// <summary>
+    /// A row of one-click preset buttons; each writes its values into the controls (not the file).
+    /// A preset only changes its own settings: every other control keeps what the player chose,
+    /// saved or not, on any page.
+    /// </summary>
     private UIElement BuildPresets(Preset[] presets)
     {
         var row = new WrapPanel();
@@ -105,6 +109,11 @@ public partial class MainWindow : Window
             button.Click += (_, _) =>
             {
                 if (_ini == null) return;
+                // The controls are reloaded from the in-memory settings below, so first copy every
+                // control's current value into them. Otherwise an unsaved change on any page (say
+                // Online co-op on Partner Up) would snap back to the last saved value. This only
+                // touches memory: the file is still written by Save or Saddle up!.
+                foreach (var write in _writers) write(_ini);
                 foreach (var (section, key, value) in preset.Values) _ini.Set(section, key, value);
                 foreach (var refresh in _refreshers) refresh();
                 StatusText.Text = $"\"{preset.Name}\" picked. Press Save or Saddle up! to keep it.";
