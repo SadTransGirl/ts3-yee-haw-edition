@@ -86,16 +86,19 @@ away*, the Wii-only levels and the 2010 script fixes. Everything else, like anti
 can differ.
 
 **The host (player 1)**
-1. In the launcher's *Partner Up* tab, choose **Online co-op**, **Host**, and enter your friend's Steam ID
-   (the 17-digit number in their Steam profile's address). Or in the ini: `mode=netplay`, `role=host`,
-   `peer_steamid=...`.
+1. In the launcher's *Partner Up* tab, choose **Online co-op** and **Host** (in the ini: `mode=netplay`,
+   `role=host`). No Steam ID is needed: any Steam friend can join you.
 2. Start the game and play. The banner at the top shows the connection.
 3. To invite your friend, hold **Back + Y** while you're waiting for them.
 
 **The friend (player 2)**
-1. Set **Online co-op** and **Join**, with the host's Steam ID (`role=client`).
-2. Accept the host's invite, or use **Join Game** from their name in your friends list, or just start the game.
+1. Choose **Online co-op** and **Join** (`role=client`). No Steam ID is needed here either.
+2. Accept the host's invite, or use **Join Game** from their name in your friends list. This works whether
+   your game is already running or not.
 3. Don't press anything while the games load together. When the level is loaded, press **Start** to join.
+
+*Partner's Steam ID* (`peer_steamid`, the 17-digit number in a Steam profile's address) is optional. With it
+set, a host only accepts that friend, and a joining player connects to that host as soon as the game starts.
 
 Player 2 plays on the host's save; theirs is backed up first and isn't changed. If the connection drops,
 both of you carry on alone, and the friend can simply join again.

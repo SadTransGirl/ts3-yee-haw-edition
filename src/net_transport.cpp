@@ -63,6 +63,10 @@ static uint64_t ParseJoinHostA(const char* s) {
     return k ? _strtoui64(k + 11, NULL, 10) : 0;
 }
 
+// Why a transport's Open() failed, in words for the player's banner (NetOpen shows it).
+// Each failure path sets it; NULL means no specific reason was found.
+static const wchar_t* g_netOpenWhy;
+
 // --- transport -------------------------------------------------------------
 
 // Plain UDP: receives on local_port, sends to peer_host:peer_port. The one-PC tests run two
@@ -77,6 +81,7 @@ struct UdpTransport : NetTransport {
     // A non-blocking socket bound to local_port. False if any step fails: NetOpen then
     // stays single player.
     bool Open() override {
+        g_netOpenWhy = L"couldn't open the local network port (is another copy of the game using it?)";
         WSADATA w;
         if (WSAStartup(MAKEWORD(2, 2), &w)) return false;
         s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -302,11 +307,18 @@ struct SteamTransport : NetTransport {
     }
 
     // Finds the Steam calls and sets up the peer, names, Join Game and the join callback.
-    // False (reason logged) when Steam or its networking isn't there, when a client has no
-    // host to talk to, or when peer_steamid is this player's own ID.
+    // False (reason logged, and put in g_netOpenWhy for the banner) when Steam or its
+    // networking isn't there, or when peer_steamid is this player's own ID.
+    // A client with no host ID is fine: it waits for a Steam join request (an accepted invite,
+    // or Join Game on a friend's name while the game runs), which NetFrameBody picks up from
+    // g_netJoinReq. A release's settings file has no ID in it, so this is the usual way to join.
     bool Open() override {
         HMODULE st = GetModuleHandleW(L"steam_api64.dll");
-        if (!st) { Log("netplay: steam_api64.dll isn't loaded"); return false; }
+        if (!st) {
+            Log("netplay: steam_api64.dll isn't loaded");
+            g_netOpenWhy = L"the game isn't running through Steam (start it from Steam)";
+            return false;
+        }
         // The networking-messages calls: the first six are required.
         auto get = [&](const char* n) { return (void*)GetProcAddress(st, n); };
         PFN_Iface iface = (PFN_Iface)get("SteamAPI_SteamNetworkingMessages_SteamAPI_v002");
@@ -317,11 +329,20 @@ struct SteamTransport : NetTransport {
         release = (PFN_Release)get("SteamAPI_SteamNetworkingMessage_t_Release");
         sessInfo = (PFN_SessInfo)get("SteamAPI_ISteamNetworkingMessages_GetSessionConnectionInfo");   // optional: diagnostics
         accept = (PFN_Accept)get("SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser");             // optional
-        if (!iface || !send || !recv || !setId || !getId || !release) { Log("netplay: this steam_api64.dll lacks the networking calls"); return false; }
+        if (!iface || !send || !recv || !setId || !getId || !release) {
+            Log("netplay: this steam_api64.dll lacks the networking calls");
+            g_netOpenWhy = L"this copy of the game's Steam library has no online networking";
+            return false;
+        }
         msgs = iface();
-        if (!msgs) { Log("netplay: Steam networking isn't available (is Steam running and signed in?)"); return false; }
+        if (!msgs) {
+            Log("netplay: Steam networking isn't available (is Steam running and signed in?)");
+            g_netOpenWhy = L"Steam networking isn't available (is Steam running and signed in?)";
+            return false;
+        }
         setIdFn = setId;
-        if (!g_net.peerSteamId && g_net.role == 1) { Log("netplay: client without a host (no peer_steamid, not started by Join Game)"); return false; }
+        if (!g_net.peerSteamId && g_net.role == 1)
+            Log("netplay: joining, no host ID yet: waiting for a Steam invite to be accepted or for Join Game");
         if (g_net.peerSteamId) setId(&peer, g_net.peerSteamId);
 
         // Networking utils (optional): Steam's log, the relay status, and starting the relay
@@ -359,7 +380,11 @@ struct SteamTransport : NetTransport {
         Log("netplay: Steam: this player %s (%llu), other player %s (%llu)%s", myName, me,
             g_net.peerSteamId ? theirName : "(anyone who joins)", g_net.peerSteamId,
             g_netLaunchedByJoin ? "; started by Steam Join Game" : "");
-        if (me && me == g_net.peerSteamId) { Log("netplay: peer_steamid is this player's own Steam ID"); return false; }
+        if (me && me == g_net.peerSteamId) {
+            Log("netplay: peer_steamid is this player's own Steam ID");
+            g_netOpenWhy = L"the partner's Steam ID in your settings is your own (enter your friend's, or leave it at 0)";
+            return false;
+        }
         // Join requests while the game is running (Join Game / invites).
         if (PFN_RegisterCb reg = (PFN_RegisterCb)get("SteamAPI_RegisterCallback")) {
             g_joinCb.m_iCallback = 337;
@@ -385,7 +410,9 @@ struct SteamTransport : NetTransport {
     void Pump() override {
         if (!accept) return;
         ULONGLONG now = GetTickCount64();
-        if (!g_net.peerSteamId) {                                   // hosting for any friend
+        // No partner yet: accept the first friend who reaches us. For a host that's whoever
+        // joins; for a joining player with no host ID, a host who has this player's ID set.
+        if (!g_net.peerSteamId) {
             // Once a second, try to accept a session from each friend. Accepting only
             // succeeds for someone whose session request is waiting, so the first friend
             // whose message has arrived becomes the peer.
@@ -400,7 +427,8 @@ struct SteamTransport : NetTransport {
                     SetPeer(id);
                     char name[128] = "?";
                     WideCharToMultiByte(CP_UTF8, 0, g_netPeerNameW, -1, name, sizeof name, NULL, NULL);
-                    Log("netplay: %s (%llu) joined; they are player 2", name, id);
+                    Log(g_net.role == 0 ? "netplay: %s (%llu) joined; they are player 2"
+                                        : "netplay: %s (%llu) reached us; they are the host, player 1", name, id);
                     break;
                 }
             }
@@ -619,7 +647,8 @@ void NetOpen() {
     else g_netT = new SteamTransport();
     if (!g_netT || !g_netT->Open()) {
         Log("netplay: couldn't open the %s connection; staying single player", g_net.transport ? "Steam" : "UDP");
-        Status(12000, kOvRed, L"Online co-op couldn't start (is Steam running?). Playing alone.");
+        Status(15000, kOvRed, L"Online co-op couldn't start: %s.\nPlaying alone.",
+               g_netOpenWhy ? g_netOpenWhy : L"the connection couldn't be opened (the log has details)");
         DebugMenu_SetNetplay(false);
         delete g_netT;                                     // half-open: its calls may be unset
         g_netT = NULL;
@@ -654,8 +683,13 @@ void NetOpen() {
     if (HANDLE pt = CreateThread(NULL, 0, LoadProfilerThread, NULL, 0, NULL)) CloseHandle(pt);
     Log("netplay: %s over %s, settings fingerprint %08x; connecting", g_net.role ? "client / player 2" : "host / player 1",
         g_netT->Name(), g_netSettings);
+    // What the player sees while nobody is connected yet. Without a partner ID, a host waits for
+    // any friend and a joining player waits for an invite: both just play on meanwhile.
     if (g_net.role == 0 && !g_net.peerSteamId)
         Status(12000, kOvBlue, L"Online co-op: hosting. Play on while you wait.\nYour friend joins from Steam: Friends > your name > Join Game.");
+    else if (g_net.role == 1 && !g_net.peerSteamId)
+        Status(15000, kOvBlue, L"Online co-op: ready to join a friend. Play on while you wait.\n"
+                               L"Accept their Steam invite, or in Steam: Friends > their name > Join Game.");
     else
         Status(0, kOvBlue, L"Online co-op: connecting to %s...", g_netPeerNameW);
 }

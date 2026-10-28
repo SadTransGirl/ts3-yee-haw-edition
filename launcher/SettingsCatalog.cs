@@ -58,7 +58,8 @@ public static class SettingsCatalog
                     "One of you hosts (player 1, whose save you both play) and the other joins (player 2).",
                     new[] { ("Host (player 1)", "host"), ("Join (player 2)", "client") }, "host"),
                 new TextSetting(Net, "peer_steamid", "Partner's Steam ID",
-                    "Your partner's 17-digit Steam ID (in Steam: their profile, the number in the page address)."),
+                    "Optional. Leave it empty to host for any friend, or to join through a Steam invite or Join Game. " +
+                    "With an ID (the 17-digit number in their Steam profile's address), you connect only to that partner."),
             }),
             new Group("On the trail", new Setting[]
             {
