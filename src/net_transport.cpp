@@ -584,9 +584,6 @@ void NetOpen() {
     line("drop_in", "%d", g_net.dropIn);
     line("hidden_levels", "%d", g_levelsWanted ? 1 : 0);
     line("script_fixes", "%d", g_scriptFixesWanted && g_scriptFixesOk ? 1 : 0);   // the 2010 script fixes change the simulation
-    // Voice lines' lengths decide when scripts and AI move on (net_determinism.cpp): the same
-    // English table on both PCs, or 0 where it couldn't be read (every line then counts 3 s).
-    line("voice_table", "%08x", g_voiceTableHash);
     // Graphics mod: these values change which actors and world chunks are
     // simulated at what detail, so both PCs must share them. That includes the
     // shadow-caster culls: like the main view's, each cascade's cull fires the
